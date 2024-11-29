@@ -1,0 +1,38 @@
+name: Update types.go
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Set up Go
+        uses: actions/setup-go@main
+        with:
+          go-version: "stable"
+
+      - name: Setup tools
+        run: |
+          sudo apt install jq -y
+
+      - name: Run jq command to update types.go
+        run: |
+          curl -L https://github.com/patrickmccallum/mimetype-io/raw/refs/heads/master/src/mimeData.json | jq -r 'def escape: gsub("\""; "\\\""); reduce .[] as $item ({};. + reduce ($item.fileTypes[] | select(. != null)) as $ext ({};. + { ($ext | ascii_downcase): $item.name })) | "package fikamime\n\nimport \"strings\"\n\nvar mimeTypes = map[string]string{\n" + (to_entries | map("\t\"" + .key + "\": \"" + (.value | escape) + "\",") | join("\n")) + "\n}\n\n// TypeByExtension returns the MIME type for a given file extension.\nfunc TypeByExtension(ext string) string {\n\treturn mimeTypes[strings.ToLower(ext)]\n}"' | gofmt > types.go
+
+      - name: Check for changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add types.go
+          git diff --cached --exit-code || git commit -m "Update types.go"
+
+      - name: Push changes
+        if: success() && steps.update-types-go.outputs.changes == 'true'
+        run: git push
